@@ -87,6 +87,12 @@ check_*.py
 *.ps1
 *.txt
 debug_*.py
+diagnose_*.py
+verify_*.py
+rebuild_*.py
+fix_*.py
+t.py
+*.ps1
 *.log
 test_*.py
 *test*.py
