@@ -1,0 +1,90 @@
+# ==========================================
+# 安全第一 - 绝对不提交任何 API Key / 密钥文件
+# ==========================================
+.env
+*.env
+secrets.json
+config.local.*
+*.key
+*.pem
+
+# ==========================================
+# Python
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.hypothesis/
+
+# ==========================================
+# Gradle / Android
+# ==========================================
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ==========================================
+# IDE
+# ==========================================
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# Data (大体积数据库/索引文件，不上传到GitHub)
+# ==========================================
+data/*.db
+data/*.pkl
+data/*.sqlite3
+data/chroma_db/
+data/*.json
+*.db
+
+# ==========================================
+# 大体积参考项目 (完全不提交)
+# ==========================================
+ragflow-main/
+RAG-Anything-main/
+retailGPT-main/
+ecommerce-agentic-rag-master/
+ecommerce-rag-agent-main/
+chatgpt-android-main/
+
+# ==========================================
+# 临时测试文件
+# ==========================================
+test_*.py
+check_*.py
+*.ps1
+*.txt
+debug_*.py
+*.log
