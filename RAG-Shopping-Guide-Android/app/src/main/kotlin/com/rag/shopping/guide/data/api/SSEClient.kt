@@ -97,32 +97,43 @@ class SSEClient(private val baseUrl: String) {
             val json = gson.fromJson(data, com.google.gson.JsonObject::class.java)
             
             when {
-                json.has("type") -> {
-                    when (val type = json.get("type").asString) {
-                        "session" -> SSEEvent.Session(json.get("session_id").asString)
-                        "content" -> SSEEvent.Content(json.get("delta").asString)
-                        "done" -> SSEEvent.Done(json.get("session_id").asString)
-                        "error" -> SSEEvent.Error(json.get("message").asString)
-                        "products" -> {
-                            val productsArray = json.getAsJsonArray("products")
-                            val products = mutableListOf<ProductItem>()
-                            for (elem in productsArray) {
-                                val obj = elem.asJsonObject
-                                val product = gson.fromJson(obj.get("product"), Product::class.java)
-                                val skusArray = obj.getAsJsonArray("skus")
-                                val skus = mutableListOf<Sku>()
-                                for (s in skusArray) {
-                                    skus.add(gson.fromJson(s, Sku::class.java))
+                        json.has("type") -> {
+                            when (val type = json.get("type").asString) {
+                                "session" -> SSEEvent.Session(json.get("session_id").asString)
+                                "content" -> SSEEvent.Content(json.get("delta").asString)
+                                "done" -> SSEEvent.Done(json.get("session_id").asString)
+                                "error" -> SSEEvent.Error(json.get("message").asString)
+                                "products" -> {
+                                    val productsArray = json.getAsJsonArray("products")
+                                    val products = mutableListOf<ProductItem>()
+                                    for (elem in productsArray) {
+                                        val obj = elem.asJsonObject
+                                        val product = gson.fromJson(obj.get("product"), Product::class.java)
+                                        val skusArray = obj.getAsJsonArray("skus")
+                                        val skus = mutableListOf<Sku>()
+                                        for (s in skusArray) {
+                                            skus.add(gson.fromJson(s, Sku::class.java))
+                                        }
+                                        products.add(ProductItem(product, skus))
+                                    }
+                                    SSEEvent.Products(products)
                                 }
-                                products.add(ProductItem(product, skus))
+                                "cart_action" -> {
+                                    val cartActionJson = json.getAsJsonObject("cart_action")
+                                    val intentDetected = if (cartActionJson.has("intent_detected")) cartActionJson.get("intent_detected").asBoolean else false
+                                    val keyword = if (cartActionJson.has("keyword") && !cartActionJson.get("keyword").isJsonNull) cartActionJson.get("keyword").asString else null
+                                    val productId = if (cartActionJson.has("product_id") && !cartActionJson.get("product_id").isJsonNull) cartActionJson.get("product_id").asString else null
+                                    val title = if (cartActionJson.has("title") && !cartActionJson.get("title").isJsonNull) cartActionJson.get("title").asString else null
+                                    val addedToCart = if (cartActionJson.has("added_to_cart")) cartActionJson.get("added_to_cart").asBoolean else false
+                                    val cartItemId = if (cartActionJson.has("cart_item_id") && !cartActionJson.get("cart_item_id").isJsonNull) cartActionJson.get("cart_item_id").asInt else null
+                                    val error = if (cartActionJson.has("error") && !cartActionJson.get("error").isJsonNull) cartActionJson.get("error").asString else null
+                                    SSEEvent.CartAction(intentDetected, keyword, productId, title, addedToCart, cartItemId, error)
+                                }
+                                else -> null
                             }
-                            SSEEvent.Products(products)
                         }
                         else -> null
                     }
-                }
-                else -> null
-            }
         } catch (e: Exception) {
             null
         }

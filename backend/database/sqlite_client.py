@@ -72,9 +72,39 @@ class SQLiteClient:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
+
+            # 用户表：登录注册
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    salt TEXT NOT NULL,
+                    nickname TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # 购物车表：每个用户每个SKU一条记录，相同user+product+sku累加数量
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS cart_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    product_id TEXT NOT NULL,
+                    sku_id TEXT,
+                    title TEXT NOT NULL,
+                    brand TEXT,
+                    image_path TEXT,
+                    unit_price REAL NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_rag_fragments_product_id ON rag_fragments(product_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_chat_history_session_id ON chat_history(session_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_cart_items_user_id ON cart_items(user_id)')
     
     def insert_product(self, product_data: Dict[str, Any]):
         with self.get_connection() as conn:
@@ -182,11 +212,89 @@ class SQLiteClient:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                'SELECT * FROM chat_history WHERE session_id = ? ORDER BY created_at DESC LIMIT ?', 
+                'SELECT * FROM chat_history WHERE session_id = ? ORDER BY created_at DESC LIMIT ?',
                 (session_id, limit)
             )
             rows = cursor.fetchall()
             result = [dict(row) for row in rows]
             return list(reversed(result))
+
+    # ========== 购物车CRUD方法 ==========
+    def add_cart_item(self, item_data: Dict[str, Any]) -> int:
+        """
+        加购：同user+product+sku已存在则数量+1，否则新增
+        返回新插入或更新的cart_item_id
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # 检查是否已存在
+            cursor.execute(
+                "SELECT id, quantity FROM cart_items WHERE user_id=? AND product_id=? AND IFNULL(sku_id,'')=IFNULL(?, '')",
+                (item_data.get('user_id'), item_data.get('product_id'), item_data.get('sku_id'))
+            )
+            existing = cursor.fetchone()
+            if existing:
+                new_qty = min(existing['quantity'] + item_data.get('quantity', 1), 99)
+                cursor.execute("UPDATE cart_items SET quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                               (new_qty, existing['id']))
+                return existing['id']
+            else:
+                cursor.execute('''
+                    INSERT INTO cart_items
+                    (user_id, product_id, sku_id, title, brand, image_path, unit_price, quantity)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    item_data.get('user_id'),
+                    item_data.get('product_id'),
+                    item_data.get('sku_id'),
+                    item_data.get('title'),
+                    item_data.get('brand'),
+                    item_data.get('image_path'),
+                    item_data.get('unit_price'),
+                    item_data.get('quantity', 1)
+                ))
+                return cursor.lastrowid
+
+    def get_cart_items(self, user_id: str) -> List[Dict]:
+        """查询某用户购物车所有项"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT * FROM cart_items WHERE user_id = ? ORDER BY created_at DESC',
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d['subtotal'] = round(d.get('unit_price', 0) * d.get('quantity', 0), 2)
+                result.append(d)
+            return result
+
+    def update_cart_quantity(self, item_id: int, quantity: int) -> bool:
+        """修改购物车某项数量"""
+        if quantity < 1 or quantity > 99:
+            return False
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE cart_items SET quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                (quantity, item_id)
+            )
+            return cursor.rowcount > 0
+
+    def remove_cart_item(self, item_id: int) -> bool:
+        """从购物车删除某项"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM cart_items WHERE id=?', (item_id,))
+            return cursor.rowcount > 0
+
+    def clear_cart(self, user_id: str) -> int:
+        """清空某用户购物车，返回删除的行数"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM cart_items WHERE user_id=?', (user_id,))
+            return cursor.rowcount
 
 sqlite_client = SQLiteClient()

@@ -2,6 +2,7 @@
 package com.rag.shopping.guide.ui.detail
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
 import com.rag.shopping.guide.data.api.RetrofitClient
 import com.rag.shopping.guide.data.model.CartAddRequest
@@ -30,7 +31,6 @@ class ProductDetailViewModel : ViewModel() {
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, message = null)
             try {
-                // 这里用Retrofit + Gson 自动强类型反序列化，完全避免 LinkedTreeMap 强转失败的问题
                 val resp = api.getProduct(productId)
                 _state.value = _state.value.copy(
                     product = resp.product,
@@ -55,13 +55,12 @@ class ProductDetailViewModel : ViewModel() {
         if (qty in 1..99) _state.value = _state.value.copy(quantity = qty)
     }
 
-    fun addToCart(userId: String) {
+    fun addToCart() {
         val p = _state.value.product ?: return
         val sku = _state.value.selectedSku
         viewModelScope.launch {
             try {
                 api.addToCart(CartAddRequest(
-                    user_id = userId,
                     product_id = p.product_id,
                     sku_id = sku?.sku_id,
                     title = p.title,

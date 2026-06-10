@@ -26,12 +26,25 @@ interface RAGGuideApi {
     @GET("api/v1/product/{product_id}")
     suspend fun getProduct(@Path("product_id") productId: String): com.rag.shopping.guide.data.model.GetProductResponse
 
-    // 购物车相关API
+    // ========== 登录注册 ==========
+    @POST("api/v1/auth/register")
+    suspend fun register(@Body request: AuthRequest): AuthResponse
+    
+    @POST("api/v1/auth/login")
+    suspend fun login(@Body request: AuthRequest): AuthResponse
+    
+    @POST("api/v1/auth/logout")
+    suspend fun logout(): Map<String, Any>
+    
+    @GET("api/v1/auth/me")
+    suspend fun me(): MeResponse
+
+    // ========== 购物车相关API (已用AuthInterceptor自动注入Bearer header，不需要user_id参数) ==========
     @POST("api/v1/cart")
     suspend fun addToCart(@Body request: CartAddRequest): Map<String, Any>
 
     @GET("api/v1/cart")
-    suspend fun getCart(@Query("user_id") userId: String): CartResponse
+    suspend fun getCart(): CartResponse
 
     @PUT("api/v1/cart/{item_id}")
     suspend fun updateCartItem(
@@ -43,5 +56,5 @@ interface RAGGuideApi {
     suspend fun removeCartItem(@Path("item_id") itemId: Int): Map<String, Any>
 
     @DELETE("api/v1/cart")
-    suspend fun clearCart(@Query("user_id") userId: String): Map<String, Any>
+    suspend fun clearCart(): Map<String, Any>
 }

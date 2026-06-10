@@ -1,4 +1,4 @@
-// Chat ViewModel - 支持SSE流式回复 + 新建会话
+// Chat ViewModel - 支持SSE流式回复 + 新建会话 + Agent自动加购刷新购物车
 package com.rag.shopping.guide.ui.chat
 
 import android.content.Context
@@ -25,6 +25,9 @@ class ChatViewModel : ViewModel() {
 
     private val api = RetrofitClient.api
     private val sseClient = SSEClientFactory.create("http://10.0.2.2:9000")
+
+    // 回调：当Agent自动加购成功后通知外部刷新购物车
+    var onCartChanged: (() -> Unit)? = null
 
     init {
         _uiState.value = _uiState.value.copy(
@@ -118,6 +121,12 @@ class ChatViewModel : ViewModel() {
                                 _uiState.value = _uiState.value.copy(
                                     messages = freshMsgs
                                 )
+                            }
+                        }
+                        is SSEEvent.CartAction -> {
+                            // Agent自动加购事件收到！如果加购成功通知外部刷新购物车
+                            if (event.added_to_cart && event.cart_item_id != null) {
+                                onCartChanged?.invoke()
                             }
                         }
                         is SSEEvent.Done -> {

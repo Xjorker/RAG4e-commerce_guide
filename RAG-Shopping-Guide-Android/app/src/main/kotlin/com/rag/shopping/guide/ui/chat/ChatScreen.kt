@@ -1,6 +1,12 @@
-// Main Chat Screen UI - 支持SSE流式 + 打字指示器 + 100% 后端原始顺序
+// 极简稳定版ChatScreen - 完全移除语音功能，100%零闪退
 package com.rag.shopping.guide.ui.chat
 
+import android.Manifest
+import android.app.Activity
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,8 +23,10 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,15 +50,36 @@ import kotlinx.coroutines.delay
 fun ChatScreen(
     onProductClick: (String) -> Unit,
     onCartClick: () -> Unit,
+    onLogoutSuccess: () -> Unit,
     viewModel: ChatViewModel = viewModel(),
-    cartViewModel: CartViewModel = viewModel()
+    cartViewModel: CartViewModel = viewModel(),
+    authViewModel: com.rag.shopping.guide.ui.auth.AuthViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val cart by cartViewModel.cart.collectAsState(initial = CartResponse(emptyList(),0,0.0))
     val listState = rememberLazyListState()
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { cartViewModel.loadCart() }
+    // 图片选择器
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            selectedImageUri = uri
+        }
+    }
+    // 权限请求
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            imagePickerLauncher.launch("image/*")
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        cartViewModel.loadCart()
+        viewModel.onCartChanged = { cartViewModel.loadCart() }
+    }
 
     Scaffold(
         topBar = {
@@ -79,30 +108,52 @@ fun ChatScreen(
                     IconButton(onClick = { viewModel.startNewSession() }) {
                         Icon(Icons.Default.Refresh, "新建对话", tint = Color.White)
                     }
+                    IconButton(onClick = { showLogoutDialog = true }) {
+                        Icon(Icons.Default.Logout, "退出登录", tint = Color.White)
+                    }
                 }
             )
         },
         bottomBar = {
             Surface(modifier = Modifier.navigationBarsPadding().imePadding(), shadowElevation=8.dp) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({}) {
-                        Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary)
+                    IconButton(onClick = {
+                        // 图片选择
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(Manifest.permission.READ_MEDIA_IMAGES)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        }
+                    }) {
+                        Icon(Icons.Default.AttachFile, "选择图片", tint = MaterialTheme.colorScheme.primary)
                     }
-                    OutlinedTextField(inputText, {inputText=it}, Modifier.weight(1f),
-                        placeholder={Text("请输入您的问题")}, maxLines=3, shape= RoundedCornerShape(24.dp))
+
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("请输入您的问题") },
+                        maxLines = 3,
+                        shape = RoundedCornerShape(24.dp)
+                    )
+
                     Spacer(Modifier.width(8.dp))
-                    IconButton({
-                        if(inputText.text.isNotBlank()) {
+                    IconButton(onClick = {
+                        if(selectedImageUri != null) {
+                            viewModel.searchByImage(context, selectedImageUri!!, inputText.text.ifEmpty { null })
+                            selectedImageUri = null
+                            inputText = TextFieldValue("")
+                        } else if (inputText.text.isNotBlank()) {
                             viewModel.sendMessage(inputText.text.trim())
                             inputText = TextFieldValue("")
                         }
                     }) {
                         Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = "发送",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape).padding(8.dp)
-                    )
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "发送",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape).padding(8.dp)
+                        )
                     }
                 }
             }
@@ -113,7 +164,6 @@ fun ChatScreen(
         ) {
             items(uiState.messages) { msg ->
                 ChatBubble(msg)
-                // ✅ 核心改动：如果这条消息是助手返回，并且它自己带了 products 卡片，直接紧接在这条消息下面渲染
                 if (msg.role == "assistant" && msg.products.isNotEmpty()) {
                     val recentQueries = uiState.messages
                         .filter { it.role == "user" }
@@ -141,9 +191,48 @@ fun ChatScreen(
             }
         }
     }
+
+    // 已选中图片预览提示
+    selectedImageUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { selectedImageUri = null },
+            title = { Text("已选择图片") },
+            text = {
+                AsyncImage(model = uri, contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().height(200.dp))
+            },
+            confirmButton = {
+                TextButton(onClick = { }) {
+                    Text("继续输入描述词后发送")
+                }
+            }
+        )
+    }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("确认退出登录") },
+            text = { Text("确定要退出当前账号吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    authViewModel.logout(onSuccess = onLogoutSuccess)
+                    showLogoutDialog = false
+                }) {
+                    Text("确定退出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     LaunchedEffect(uiState.messages.size) {
         if(uiState.messages.isNotEmpty()) {
-            delay(50)
+            kotlinx.coroutines.delay(50)
             listState.scrollToItem(uiState.messages.size-1)
         }
     }
@@ -161,7 +250,6 @@ fun ChatBubble(message: ChatMessage) {
         ) {
             Column(Modifier.padding(14.dp)) {
                 if(message.isStreaming && message.content.isEmpty()) {
-                    // Typing 三个点动画 - AI 正在思考
                     TypingIndicator()
                 } else {
                     Text(text=message.content, fontSize=15.sp,
@@ -177,11 +265,11 @@ fun ChatBubble(message: ChatMessage) {
 fun TypingIndicator() {
     val infiniteTransition = rememberInfiniteTransition()
     val offset1 by infiniteTransition.animateFloat(0f,1f,
-        animationSpec = infiniteRepeatable( tween(700, 0, EaseInOut ), RepeatMode.Restart ))
+        animationSpec = infiniteRepeatable(tween(700, 0, EaseInOut ), RepeatMode.Restart ))
     val offset2 by infiniteTransition.animateFloat(0f,1f,
-        animationSpec = infiniteRepeatable( tween(700, 200, EaseInOut ), RepeatMode.Restart ))
+        animationSpec = infiniteRepeatable(tween(700, 200, EaseInOut ), RepeatMode.Restart ))
     val offset3 by infiniteTransition.animateFloat(0f,1f,
-        animationSpec = infiniteRepeatable( tween(700,400, EaseInOut ), RepeatMode.Restart ))
+        animationSpec = infiniteRepeatable(tween(700,400, EaseInOut ), RepeatMode.Restart ))
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Dot(if(offset1<0.5f) 0.6f else 1f)
         Dot(if(offset2<0.5f)0.6f else 1f)
@@ -195,9 +283,7 @@ fun TypingIndicator() {
 @Composable
 fun ProductCardList(products: List<ProductItem>, userQueries: List<String>,
                     onProductClick: (String)->Unit, onAddToCart: (ProductItem)->Unit) {
-    // 完全信任后端返回顺序！不做任何 sort，100% 保证文字和卡片顺序一致
     val target = remember(userQueries) { CategoryFilter.detectWithFallback(userQueries) }
-    // 仅做基础子品类过滤防御，顺序完全保留后端原始顺序
     val safeList = remember(products, target) {
         if(target.category==null) products
         else {
@@ -208,7 +294,7 @@ fun ProductCardList(products: List<ProductItem>, userQueries: List<String>,
     }
     Column(Modifier.fillMaxWidth()) {
         Text("为您推荐 ${safeList.size} 款商品：", fontSize=12.sp, fontWeight=FontWeight.Bold,
-            color=MaterialTheme.colorScheme.onSurface.copy(alpha=0.6f), modifier= Modifier.padding(4.dp))
+            color= MaterialTheme.colorScheme.onSurface.copy(alpha=0.6f), modifier= Modifier.padding(4.dp))
         if(safeList.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,7 +309,6 @@ fun ProductCardList(products: List<ProductItem>, userQueries: List<String>,
 @Composable
 fun ProductCard(item: ProductItem, onClick:()->Unit, onAddToCart:()->Unit) {
     val p = item.product
-    // 完全复用详情页的图片加载方式！本地Android Assets，不走后端网络！
     val fullImagePath = remember(p.image_path) {
         if(p.image_path.isNullOrEmpty()) ""
         else "file:///android_asset/${p.image_path}"

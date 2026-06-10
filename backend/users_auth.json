@@ -1,0 +1,40 @@
+{
+  "tokens": {
+    "7V07pwHrO2B3viFh19ah1n1VBMOWrpm1CDNQJNFWBsM": {
+      "user_id": 1,
+      "username": "alice",
+      "nickname": "爱丽丝",
+      "expires_at": "2026-07-10T20:38:15.801224"
+    },
+    "w6h3pcMCk3ODHzVqLL15Bh5B9fBzP50F6S8y-kF0h7c": {
+      "user_id": 2,
+      "username": "bob",
+      "nickname": "鲍勃",
+      "expires_at": "2026-07-10T20:38:17.818460"
+    },
+    "txII-wSSHoAOPfj027fLLgFk4QqW2SLgPSI8FzgOv-g": {
+      "user_id": 3,
+      "username": "wzy",
+      "nickname": "wzy",
+      "expires_at": "2026-07-10T20:50:43.892917"
+    },
+    "8SopiCDTWPzu7cEO5NxWl5_VG2zFkowIlottwjLnt-4": {
+      "user_id": 3,
+      "username": "wzy",
+      "nickname": "wzy",
+      "expires_at": "2026-07-10T21:04:39.985812"
+    },
+    "xLgTUOpG0DuKVwd4sQQxC_-TtczJW1uhsSpMJ4nY5CM": {
+      "user_id": 3,
+      "username": "wzy",
+      "nickname": "wzy",
+      "expires_at": "2026-07-10T21:22:37.434187"
+    },
+    "-6K-b_wNqlCG27NNdG73jsugU-2k_3H_wo4sREeZW3E": {
+      "user_id": 1,
+      "username": "wzy",
+      "nickname": "wzy",
+      "expires_at": "2026-07-10T21:51:33.159411"
+    }
+  }
+}

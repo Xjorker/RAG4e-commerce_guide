@@ -79,7 +79,7 @@ fun ProductDetailScreen(
                         }
                         Button(
                             onClick = {
-                                viewModel.addToCart(cartViewModel.userId.value)
+                                viewModel.addToCart()
                             },
                             modifier = Modifier.weight(2f).height(48.dp)
                         ) {

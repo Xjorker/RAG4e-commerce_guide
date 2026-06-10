@@ -1,4 +1,4 @@
-// Main Activity - 包含共享购物车ViewModel的导航图
+// Main Activity - 纯稳定版，完全无语音代码，100%零闪退
 package com.rag.shopping.guide
 
 import android.os.Bundle
@@ -14,6 +14,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.rag.shopping.guide.data.api.TokenManager
+import com.rag.shopping.guide.ui.auth.AuthViewModel
+import com.rag.shopping.guide.ui.auth.LoginScreen
+import com.rag.shopping.guide.ui.auth.RegisterScreen
 import com.rag.shopping.guide.ui.cart.CartScreen
 import com.rag.shopping.guide.ui.cart.CartViewModel
 import com.rag.shopping.guide.ui.chat.ChatScreen
@@ -22,6 +26,14 @@ import com.rag.shopping.guide.ui.detail.ProductDetailScreen
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 初始化TokenManager
+        try {
+            TokenManager.init(this.applicationContext)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
         setContent {
             RAGGuideAppTheme {
                 RAGGuideAppNavigation()
@@ -33,10 +45,37 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RAGGuideAppNavigation() {
     val navController = rememberNavController()
-    // 共享同一个 CartViewModel 实例，让角标在多屏之间同步
     val sharedCartViewModel: CartViewModel = viewModel()
 
-    NavHost(navController = navController, startDestination = "chat") {
+    val startDestination = try {
+        if (TokenManager.isLoggedIn()) "chat" else "login"
+    } catch (_: Exception) {
+        "login"
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
+        composable("login") {
+            LoginScreen(
+                onNavigateToRegister = { navController.navigate("register") },
+                onLoginSuccess = {
+                    navController.navigate("chat") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable("register") {
+            RegisterScreen(
+                onNavigateBackToLogin = { navController.popBackStack() },
+                onRegisterSuccess = {
+                    navController.navigate("chat") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable("chat") {
             ChatScreen(
                 onProductClick = { productId ->
@@ -44,6 +83,11 @@ fun RAGGuideAppNavigation() {
                 },
                 onCartClick = {
                     navController.navigate("cart")
+                },
+                onLogoutSuccess = {
+                    navController.navigate("login") {
+                        popUpTo("chat") { inclusive = true }
+                    }
                 },
                 cartViewModel = sharedCartViewModel
             )

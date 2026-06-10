@@ -9,8 +9,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
     
-    // 默认使用Android模拟器专属地址 10.0.2.2（映射到电脑本机）
-    // 如果是真实手机，需要改为电脑的局域网IP，比如 http://192.168.1.100:8000/
+    // 本地模式：Android模拟器专属地址 10.0.2.2 映射到电脑本机 9000
     private const val BASE_URL = "http://10.0.2.2:9000/"
     
     private val logging = HttpLoggingInterceptor().apply {
@@ -21,6 +20,7 @@ object RetrofitClient {
         .connectTimeout(120, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
+        .addInterceptor(AuthInterceptor())
         .addInterceptor(logging)
         .build()
     

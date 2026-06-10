@@ -25,18 +25,11 @@ class CartViewModel : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    private val _userId = MutableStateFlow("default_user")
-    val userId: StateFlow<String> = _userId.asStateFlow()
-
-    fun setUserId(uid: String) {
-        _userId.value = uid
-    }
-
     fun loadCart() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                _cart.value = api.getCart(_userId.value)
+                _cart.value = api.getCart()
             } catch (e: Exception) {
                 _errorMessage.value = "加载购物车失败: ${e.message}"
             } finally {
@@ -48,7 +41,7 @@ class CartViewModel : ViewModel() {
     fun addToCart(request: CartAddRequest) {
         viewModelScope.launch {
             try {
-                api.addToCart(request.copy(user_id = _userId.value))
+                api.addToCart(request)
                 loadCart()
             } catch (e: Exception) {
                 _errorMessage.value = "加购失败: ${e.message}"
@@ -81,7 +74,7 @@ class CartViewModel : ViewModel() {
     fun clearAll() {
         viewModelScope.launch {
             try {
-                api.clearCart(_userId.value)
+                api.clearCart()
                 loadCart()
             } catch (e: Exception) {
                 _errorMessage.value = "清空购物车失败: ${e.message}"

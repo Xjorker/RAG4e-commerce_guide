@@ -129,6 +129,38 @@ sealed class SSEEvent {
     data class Session(val sessionId: String) : SSEEvent()
     data class Content(val delta: String) : SSEEvent()
     data class Products(val products: List<ProductItem>) : SSEEvent()
+    data class CartAction(
+        val intent_detected: Boolean,
+        val keyword: String? = null,
+        val product_id: String? = null,
+        val title: String? = null,
+        val added_to_cart: Boolean,
+        val cart_item_id: Int? = null,
+        val error: String? = null
+    ) : SSEEvent()
     data class Done(val sessionId: String) : SSEEvent()
     data class Error(val message: String) : SSEEvent()
 }
+
+// ========== 登录注册 ==========
+data class AuthRequest(
+    val username: String,
+    val password: String,
+    val nickname: String? = null
+)
+
+data class AuthResponse(
+    val ok: Boolean,
+    val token: String? = null,
+    val user_id: Int? = null,
+    val username: String? = null,
+    val nickname: String? = null,
+    val expires_at: String? = null,
+    val error: String? = null,
+    val detail: String? = null
+)
+
+data class MeResponse(
+    val ok: Boolean,
+    val user_id: String? = null
+)
