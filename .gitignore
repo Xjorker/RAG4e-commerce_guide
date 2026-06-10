@@ -75,12 +75,12 @@ data/*.json
 ragflow-main/
 RAG-Anything-main/
 retailGPT-main/
-ecommerce-agentic-rag-master/
+ecommerce_agentic-rag-master/
 ecommerce-rag-agent-main/
 chatgpt-android-main/
 
 # ==========================================
-# 临时测试文件
+# 临时测试文件 - 完全不提交
 # ==========================================
 test_*.py
 check_*.py
@@ -88,3 +88,5 @@ check_*.py
 *.txt
 debug_*.py
 *.log
+test_*.py
+*test*.py
