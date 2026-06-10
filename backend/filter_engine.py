@@ -1,11 +1,8 @@
 """
-超强精准过滤引擎 V4.0：全维度+功能属性语义召回层
-1. 价格维度：绝对价格 + 相对价格(更贵/更便宜)
-2. 品牌维度：从数据库动态提取所有真实品牌，100%识别
-3. 颜色维度：颜色关键词从SKU属性中精确匹配
-4. 子品类维度：完整覆盖所有子品类
-5. 功能维度："减震/抗衰老/保湿/辣不辣" 从RAG知识库内容中语义召回
-6. 全维度历史上下文继承：后续对话无需重复任何约束
+超强精准过滤引擎 V4.1：修正排除逻辑+宽松功能属性模式
+1. 修复反选逻辑："不要华为" → 品牌=华为 从结果中排除华为，其他全部保留
+2. 宽松功能属性模式：功能属性没有命中不直接清空结果，只是打印日志，返回所有子品类商品
+3. 确保如果过滤后结果为空，返回空列表，不会让大模型瞎编不存在的商品
 """
 import sys
 import os
@@ -40,7 +37,6 @@ SUB_CATEGORY_FULL_MAP = {
     '方便面': ['方便面', '泡面', '桶面']
 }
 
-# V4 核心：完整功能属性库
 FUNCTION_ATTRIBUTE_MAP = {
     "鞋子减震": {
         "category": "跑鞋",
@@ -88,7 +84,7 @@ def extract_all_brands_from_db():
     return list(brands)
 
 ALL_DB_BRANDS = extract_all_brands_from_db()
-print(f"[Filter V4] 初始化完成: 品牌={len(ALL_DB_BRANDS)} 功能属性={len(FUNCTION_ATTRIBUTE_MAP)}")
+print(f"[Filter V4.1] 初始化完成: 品牌库={len(ALL_DB_BRANDS)} 功能属性={len(FUNCTION_ATTRIBUTE_MAP)}")
 
 def infer_target_subcategory_from_query(query: str):
     for sub_cat, hints in SUB_CATEGORY_FULL_MAP.items():
@@ -110,15 +106,19 @@ def parse_price_constraint_v3(query: str, last_base_price: float = None):
         (r'低于\s*(\d+(?:\.\d+)?)', lambda x: float(x)),
         (r'不超过\s*(\d+(?:\.\d+)?)块', lambda x: float(x)),
     ]
+    
     for p, handler in absolute_patterns:
         m = re.search(p, query)
         if m:
-            return ('max', float(m.group(1)))
+            price_val = handler(m.group(1))
+            return ('max', price_val)
+    
     if last_base_price is not None:
         if '更贵' in query or '贵一点' in query or '贵一些' in query:
             return ('relative_higher', last_base_price * 1.3)
         if '更便宜' in query or '便宜一点' in query or '便宜一些' in query:
             return ('relative_lower', last_base_price * 0.7)
+    
     return None
 
 def extract_brand_from_query(query: str):
@@ -137,10 +137,12 @@ def extract_function_attribute_from_query(query: str):
     matched_funcs = []
     for func_name, func_info in FUNCTION_ATTRIBUTE_MAP.items():
         kw_list = func_info['keywords']
+        hit_count = 0
         for kw in kw_list:
             if kw in query:
-                matched_funcs.append(func_name)
-                break
+                hit_count += 1
+        if hit_count >= 1:
+            matched_funcs.append(func_name)
     return matched_funcs
 
 def is_pure_inherit_query(query: str):
@@ -148,7 +150,18 @@ def is_pure_inherit_query(query: str):
     no_new_sub = infer_target_subcategory_from_query(query) is None
     return no_new_brand and no_new_sub
 
+def is_exclude_brand_query(query: str, brand_name: str):
+    """判断是不是要排除某个品牌（比如不要华为的）"""
+    exclude_patterns = ['不要', '别', '不含', '除了', '不是']
+    for p in exclude_patterns:
+        if p in query and brand_name in query:
+            return True
+    return False
+
 def smart_filter_products(items, query, exclude_keywords: list, session_id=None):
+    """
+    V4.1 修复版
+    """
     global GLOBAL_FULL_HISTORY_CACHE
     
     current_price_tuple = parse_price_constraint_v3(query)
@@ -160,26 +173,52 @@ def smart_filter_products(items, query, exclude_keywords: list, session_id=None)
     cached = GLOBAL_FULL_HISTORY_CACHE.get(session_id, {}) if session_id else {}
     last_sub = cached.get('last_sub', None)
     last_brand = cached.get('last_brand', None)
-    last_abs_price = cached.get('last_abs_price_base', 99999.0)
-    last_func = cached.get('last_func_attrs', [])
+    last_abs_price_base = cached.get('last_abs_price_base', 99999.0)
+    last_func_attrs = cached.get('last_func_attrs', [])
+    last_exclude_brand = cached.get('last_exclude_brand', None)
     
     is_pure_inherit = is_pure_inherit_query(query)
     target_sub = current_sub if current_sub else (last_sub if is_pure_inherit else None)
-    target_price = current_price_tuple if current_price_tuple else (parse_price_constraint_v3(query, last_abs_price) if (is_pure_inherit and not current_price_tuple) else None)
-    target_brand = current_brand if current_brand else (last_brand if is_pure_inherit else None)
-    target_func = current_func_attrs if len(current_func_attrs) > 0 else (last_func if is_pure_inherit else [])
+    target_price_tuple = current_price_tuple
+    if is_pure_inherit and target_price_tuple is None:
+        target_price_tuple = parse_price_constraint_v3(query, last_abs_price_base)
     
-    print(f"[Filter V4] query={query} | sub={target_sub} brand={target_brand} color={current_color} price={target_price} func={target_func}")
+    # ========= 修复品牌逻辑！支持"不要华为"反选 =========
+    target_exclude_brand = None
+    target_include_brand = None  # 提前初始化，避免未定义
+    if current_brand:
+        if is_exclude_brand_query(query, current_brand):
+            # 排除模式：不要这个品牌
+            target_exclude_brand = current_brand
+            print(f"[Filter V4.1] 识别到排除品牌模式: 不要 {current_brand}")
+        else:
+            # 正常模式：要这个品牌
+            target_include_brand = current_brand
+    else:
+        target_include_brand = last_brand if is_pure_inherit else None
+    if not target_exclude_brand and last_exclude_brand and is_pure_inherit:
+        target_exclude_brand = last_exclude_brand
     
+    target_func_attrs = current_func_attrs if len(current_func_attrs) > 0 else (last_func_attrs if is_pure_inherit else [])
+    
+    print(f"[Filter V4.1] ================= 解析结果 ===================")
+    print(f"[Filter V4.1]  query={query}")
+    print(f"[Filter V4.1]  子品类={target_sub} 包含品牌={target_include_brand} 排除品牌={target_exclude_brand}")
+    print(f"[Filter V4.1]  价格={target_price_tuple} 颜色={current_color} 功能属性={target_func_attrs}")
+    
+    # 更新历史缓存
     if not is_pure_inherit and session_id:
         if current_sub:
             GLOBAL_FULL_HISTORY_CACHE[session_id] = GLOBAL_FULL_HISTORY_CACHE.get(session_id, {})
             GLOBAL_FULL_HISTORY_CACHE[session_id]['last_sub'] = current_sub
-        if current_brand:
+        if current_brand and not is_exclude_brand_query(query, current_brand):
             GLOBAL_FULL_HISTORY_CACHE[session_id] = GLOBAL_FULL_HISTORY_CACHE.get(session_id, {})
             GLOBAL_FULL_HISTORY_CACHE[session_id]['last_brand'] = current_brand
-        if current_price_tuple and current_price_tuple[0] in ['max', 'relative_higher', 'relative_lower']:
-            val = current_price_tuple[1]
+        if target_exclude_brand:
+            GLOBAL_FULL_HISTORY_CACHE[session_id] = GLOBAL_FULL_HISTORY_CACHE.get(session_id, {})
+            GLOBAL_FULL_HISTORY_CACHE[session_id]['last_exclude_brand'] = target_exclude_brand
+        if target_price_tuple and target_price_tuple[0] in ['max', 'relative_higher', 'relative_lower']:
+            val = target_price_tuple[1]
             GLOBAL_FULL_HISTORY_CACHE[session_id] = GLOBAL_FULL_HISTORY_CACHE.get(session_id, {})
             GLOBAL_FULL_HISTORY_CACHE[session_id]['last_price'] = val
             GLOBAL_FULL_HISTORY_CACHE[session_id]['last_abs_price_base'] = val
@@ -189,6 +228,7 @@ def smart_filter_products(items, query, exclude_keywords: list, session_id=None)
     
     all_products = sqlite_client.get_all_products()
     result = []
+    
     for p in all_products:
         p_id = p.get('product_id')
         p_title = p.get('title','')
@@ -196,54 +236,85 @@ def smart_filter_products(items, query, exclude_keywords: list, session_id=None)
         p_sub = p.get('sub_category','')
         p_price = float(p.get('base_price', 0))
         
+        # 维度1：子品类过滤
         if target_sub and p_sub != target_sub:
             continue
-        if target_brand and target_brand not in p_brand and target_brand not in p_title:
+        
+        # 维度2：包含品牌 过滤（正常模式）
+        if target_include_brand and target_include_brand not in p_brand and target_include_brand not in p_title:
             continue
         
+        # 维度3：排除品牌 过滤（反选模式：不要华为）
+        if target_exclude_brand and (target_exclude_brand in p_brand or target_exclude_brand in p_title):
+            print(f"[Filter V4.1] 排除品牌商品: {p_title} (命中不要 {target_exclude_brand})")
+            continue
+        
+        # 维度4：普通排除关键词
         excluded = False
         for kw in exclude_keywords:
             if kw and (kw in p_title or kw in p_brand):
                 excluded = True
                 break
         if excluded:
+            print(f"[Filter V4.1] 排除关键词: {p_title}")
             continue
         
+        # 维度5：价格过滤
         price_ok = True
-        if target_price:
-            t, v = target_price
-            if t == 'max' and p_price > v: price_ok = False
-            if t == 'relative_higher' and p_price < v: price_ok = False
-            if t == 'relative_lower' and p_price > v: price_ok = False
+        if target_price_tuple:
+            price_type, price_val = target_price_tuple
+            if price_type == 'max' and p_price > price_val:
+                price_ok = False
+            if price_type == 'relative_higher' and p_price < price_val:
+                price_ok = False
+            if price_type == 'relative_lower' and p_price > price_val:
+                price_ok = False
         if not price_ok:
             continue
         
         skus_list = sqlite_client.get_skus_by_product_id(p_id)
+        
+        # 维度6：颜色过滤
         if current_color and len(skus_list) > 0:
-            has_color = False
+            has_color_sku = False
             for sku in skus_list:
                 try:
-                    ps = json.loads(sku.get('properties', '{}')) if isinstance(sku.get('properties'), str) else sku.get('properties', {})
-                    if current_color in str(ps): has_color = True; break
-                except: pass
-            if not has_color:
+                    props = json.loads(sku.get('properties', '{}')) if isinstance(sku.get('properties'), str) else sku.get('properties', {})
+                    props_str = str(props)
+                    if current_color in props_str:
+                        has_color_sku = True
+                        break
+                except:
+                    pass
+            if not has_color_sku:
                 continue
         
-        func_ok = True
-        if len(target_func) > 0:
+        # V4.1 宽松功能属性模式：只打日志，不清空结果！
+        # 这样就不会出现"来点辣的方便面"返回0的问题
+        func_attr_ok = True
+        if len(target_func_attrs) > 0:
             frag = sqlite_client.get_fragments_by_product_id(p_id)
-            full_text = p_title + " " + (frag.get('content','') if frag else "")
-            hit = False
-            for fname in target_func:
-                for kw in FUNCTION_ATTRIBUTE_MAP.get(fname, {}).get('keywords', []):
-                    if kw in full_text: hit = True; break
-                if hit: break
-            if not hit: func_ok = False
-        if not func_ok:
-            continue
+            all_content_to_check = p_title + " " + (frag.get('content','') if frag else "")
+            matched_any_func = False
+            for fname in target_func_attrs:
+                func_info = FUNCTION_ATTRIBUTE_MAP.get(fname, {})
+                for kw in func_info.get('keywords', []):
+                    if kw in all_content_to_check:
+                        matched_any_func = True
+                        break
+                if matched_any_func:
+                    break
+            if not matched_any_func:
+                print(f"[Filter V4.1] 提示: 商品[{p_title}]未命中功能属性约束，但仍然保留（宽松模式）")
         
+        # 所有检查通过！加入结果
         frag_final = sqlite_client.get_fragments_by_product_id(p_id)
-        result.append({"product":p, "skus":skus_list, "fragment":frag_final if frag_final else {"fragment_id":f"full_{p_id}", "content":p_title}, "score":1.0})
+        result.append({
+            "product": p,
+            "skus": skus_list,
+            "fragment": frag_final if frag_final else {"fragment_id": f"full_{p_id}", "content": p_title},
+            "score": 1.0
+        })
     
-    print(f"[Filter V4] 完成！共返回 {len(result)} 个商品")
+    print(f"[Filter V4.1] 过滤完成！最终返回 {len(result)} 个商品")
     return result
