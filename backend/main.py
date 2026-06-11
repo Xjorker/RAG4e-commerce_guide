@@ -267,9 +267,12 @@ async def stream_chat_response(req: ChatRequest):
     sse_extra_hint = ''
     if sse_pure_compare_too_many:
         sse_extra_hint += '\n\n[系统消息] 用户要对比的商品数量超过了5个，请礼貌地建议用户减少商品数量，挑选不超过5款来进行高效清晰的对比.'
+    if len(retrieved) == 0:
+        sse_extra_hint += '\n\n[系统强制最高优先级提示] 现在检索结果为空列表！你绝对不能编造任何不存在的商品信息、标题、价格，你必须直接礼貌地告诉用户：目前在数据库中没有找到符合您要求的商品，请换个条件再试试。'
 
     system_prompt = f'''你是一个专业的电商智能导购助手。
 请基于以下检索到的商品知识，为用户提供专业、友好的导购建议。
+【绝对铁律】如果检索到的商品列表为空，100%禁止编造任何虚拟商品，直接如实告知用户没找到。
 
 检索到的商品知识：
 {context_str}
